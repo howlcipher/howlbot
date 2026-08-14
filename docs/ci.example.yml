@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+
+    - name: Build
+      run: make build
+
+    - name: Test
+      run: make test
+
+    - name: HowlFrame Validation
+      run: |
+        # In a real environment, we'd install howlframe here.
+        # This is a stub for HowlFrame compilation and validation.
+        echo "Validating src/howlbot.howl..."
+        # howlframe -validate src/howlbot.howl
