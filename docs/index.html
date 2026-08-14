@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HowlBot Architecture</title>
+    <style>
+        body {
+            font-family: monospace;
+            background-color: #f4f4f5;
+            color: #18181b;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        h1, h2 {
+            border-bottom: 2px solid #18181b;
+            padding-bottom: 0.5rem;
+        }
+        pre {
+            background-color: #27272a;
+            color: #f4f4f5;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .visual {
+            background: #ffffff;
+            border: 1px solid #d4d4d8;
+            padding: 2rem;
+            margin: 2rem 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>HowlBot</h1>
+    <p>HowlBot is an event-driven Discord operations bot and external HowlFrame dogfooding application. Discord users may propose actions, but trusted identity evidence and deterministic HowlFrame policy decide what the system is authorized to do.</p>
+    
+    <h2>Architecture & Security Boundary</h2>
+    <div class="visual">
+        <pre>MESSAGE ≠ AUTHORITY
+
+Discord input
+   ↓
+trusted identity evidence
+   ↓
+HowlFrame policy
+   ↓
+decision
+   ↓
+bounded effect</pre>
+    </div>
+    
+    <h2>Relationship to HowlFrame</h2>
+    <p>HowlBot acts as a host adapter. It handles the Discord protocol, builds normalized identity evidence, and submits it to HowlFrame. HowlFrame executes the deterministic policy to yield an ALLOW, DENY, or REQUIRE_APPROVAL decision.</p>
+
+    <h2>Commands</h2>
+    <ul>
+        <li><code>/howl status</code> - System check</li>
+        <li><code>/howl policy</code> - Show current policy constraints</li>
+        <li><code>/howl history</code> - View audit trail</li>
+        <li><code>/repo status</code> - Repository status</li>
+        <li><code>/repo release</code> - Propose release (requires approval)</li>
+        <li><code>/repo approve &lt;id&gt;</code> - Approve operation</li>
+    </ul>
+    
+    <h2>Setup</h2>
+    <p>See the README in the repository for detailed configuration instructions, requiring a Discord bot token and appropriate configured roles.</p>
+</body>
+</html>
