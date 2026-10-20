@@ -12,10 +12,10 @@ import (
 )
 
 type Config struct {
-	DiscordToken string
-	HowlframeCmd string
-	HowlbotScript string
-	AdminRoleID  string
+	DiscordToken     string
+	HowlframeCmd     string
+	HowlbotScript    string
+	AdminRoleID      string
 	MaintainerRoleID string
 }
 
@@ -100,16 +100,16 @@ func NewBot(cfg Config) (*Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	bot := &Bot{
 		cfg:     cfg,
 		Session: dg,
 		history: make([]Decision, 0),
 	}
-	
+
 	dg.AddHandler(bot.onReady)
 	dg.AddHandler(bot.onInteractionCreate)
-	
+
 	return bot, nil
 }
 
@@ -118,7 +118,7 @@ func (b *Bot) Start() error {
 	if err != nil {
 		return err
 	}
-	
+
 	log.Println("Registering commands...")
 	for _, v := range commands {
 		_, err := b.Session.ApplicationCommandCreate(b.Session.State.User.ID, "", v)
@@ -126,7 +126,7 @@ func (b *Bot) Start() error {
 			log.Printf("Cannot create '%v' command: %v", v.Name, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -144,19 +144,14 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	}
 
 	data := i.ApplicationCommandData()
-	cmdName := data.Name
 	subCmd := ""
 	if len(data.Options) > 0 {
 		subCmd = data.Options[0].Name
 	}
-	
-	fullCmd := cmdName
-	if subCmd != "" {
-		fullCmd = cmdName + "_" + subCmd
-	}
-	
+	fullCmd, approved := PolicyCommand(data.Name, subCmd)
+
 	log.Printf("Received interaction: %s", fullCmd)
-	
+
 	// Normalize Identity
 	roles := []string{}
 	if i.Member != nil {
@@ -169,31 +164,24 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 			}
 		}
 	}
-	
+
 	userID := ""
 	if i.Member != nil {
 		userID = i.Member.User.ID
 	} else if i.User != nil {
 		userID = i.User.ID
 	}
-	
-	isApprove := fullCmd == "repo_approve"
-	approved := "false"
-	if isApprove {
-		fullCmd = "repo_release" // For simplicity, assume approve approves a release
-		approved = "true"
-	}
-	
+
 	event := Event{
 		Command:  fullCmd,
 		UserID:   userID,
 		Roles:    strings.Join(roles, ","),
 		Approved: approved,
 	}
-	
+
 	// Call HowlFrame
 	log.Printf("Evaluating policy with HowlFrame...")
-	
+
 	args := []string{
 		"-run",
 		b.cfg.HowlbotScript,
@@ -202,13 +190,13 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		"roles=" + event.Roles,
 		"approved=" + event.Approved,
 	}
-	
+
 	cmd := exec.Command(b.cfg.HowlframeCmd, args...)
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
 	err := cmd.Run()
-	
+
 	if err != nil {
 		log.Printf("HowlFrame execution failed: %v\nStderr: %s", err, errb.String())
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -219,7 +207,7 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		})
 		return
 	}
-	
+
 	var dec Decision
 	err = json.Unmarshal(outb.Bytes(), &dec)
 	if err != nil {
@@ -232,17 +220,17 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		})
 		return
 	}
-	
+
 	dec.Command = fullCmd
 	b.history = append(b.history, dec)
 	if len(b.history) > 10 {
 		b.history = b.history[len(b.history)-10:]
 	}
-	
+
 	log.Printf("Decision: %s (Reason: %s)", dec.Decision, dec.Reason)
-	
+
 	resp := fmt.Sprintf("**Decision:** %s\n**Reason:** %s", dec.Decision, dec.Reason)
-	
+
 	if dec.Decision == "REQUIRE_APPROVAL" {
 		resp += "\n\nAn administrator must approve this action. Use `/repo approve <id>`"
 	} else if dec.Decision == "ALLOW" {
@@ -255,11 +243,32 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 			}
 		}
 	}
-	
+
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: resp,
 		},
 	})
+}
+
+// PolicyCommand maps a slash command to the command name src/howlbot.howl
+// matches and the approved flag it is evaluated with. `/howl status` is the
+// policy's `status` (not `howl_status`); `/repo <sub>` is `repo_<sub>`.
+// `/repo approve` is evaluated as an approved `repo_release` (see issue #1:
+// the approval id is not yet checked against a stored request).
+func PolicyCommand(name, sub string) (command, approved string) {
+	approved = "false"
+	switch {
+	case sub == "":
+		command = name
+	case name == "howl":
+		command = sub
+	default:
+		command = name + "_" + sub
+	}
+	if command == "repo_approve" {
+		command, approved = "repo_release", "true"
+	}
+	return command, approved
 }
