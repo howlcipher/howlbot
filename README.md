@@ -50,3 +50,22 @@ approver is not the requester; anything else is denied. Pending requests are
 kept in memory, so a restart forgets them and they must be requested again.
 
 See [GitHub Pages](docs/index.html) for more details.
+
+### Pending approval reliability
+
+Discord approvers must currently hold the configured administrator role before a
+request can be reserved. A request has at most one policy evaluation in flight.
+Only an `ALLOW` response consumes it; a policy denial, malformed result or failed
+evaluator preserves the original request for retry until its 24-hour expiry.
+Successful consumption is final even if sending the Discord response fails, so a
+response retry cannot authorize the operation twice. Concurrent history access
+uses a locked snapshot.
+
+Discord roles and a different requester/approver are service policy safeguards.
+They do not implement independently authenticated owner approval against an agent
+sharing the owner's operating-system account. The current policy demonstrates
+messages, not actual protected releases. Real protected operations require the
+independently protected executor, owner authentication and replay ledger selected
+for Model B before they may be enabled.
+
+Approval requests now reserve only after administrator authorization and commit after policy ALLOW; failures retain pending requests. Concurrent handler history is synchronized. These service roles do not establish Model B owner authentication.
