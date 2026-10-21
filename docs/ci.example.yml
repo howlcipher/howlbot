@@ -15,17 +15,22 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.25'
+
+    # The policy tests (tests/, adapter/command_test.go) skip without a
+    # howlframe on PATH, so install a pinned build first.
+    - name: Install pinned HowlFrame
+      run: |
+        git clone https://github.com/howlcipher/howlframe.git /tmp/howlframe
+        git -C /tmp/howlframe checkout --detach v0.1.0
+        (cd /tmp/howlframe && go build -o "$HOME/.local/bin/howlframe" howlframe.go)
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
     - name: Build
       run: make build
 
+    - name: Validate the policy
+      run: howlframe check src/howlbot.howl
+
     - name: Test
       run: make test
-
-    - name: HowlFrame Validation
-      run: |
-        # In a real environment, we'd install howlframe here.
-        # This is a stub for HowlFrame compilation and validation.
-        echo "Validating src/howlbot.howl..."
-        # howlframe -validate src/howlbot.howl
