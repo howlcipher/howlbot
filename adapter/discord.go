@@ -90,9 +90,10 @@ var (
 )
 
 type Bot struct {
-	cfg     Config
-	Session *discordgo.Session
-	history []Decision
+	cfg       Config
+	Session   *discordgo.Session
+	history   []Decision
+	approvals *Approvals
 }
 
 func NewBot(cfg Config) (*Bot, error) {
@@ -102,9 +103,10 @@ func NewBot(cfg Config) (*Bot, error) {
 	}
 
 	bot := &Bot{
-		cfg:     cfg,
-		Session: dg,
-		history: make([]Decision, 0),
+		cfg:       cfg,
+		Session:   dg,
+		history:   make([]Decision, 0),
+		approvals: NewApprovals(),
 	}
 
 	dg.AddHandler(bot.onReady)
@@ -145,8 +147,14 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 
 	data := i.ApplicationCommandData()
 	subCmd := ""
+	approveID := ""
 	if len(data.Options) > 0 {
 		subCmd = data.Options[0].Name
+		for _, opt := range data.Options[0].Options {
+			if opt.Name == "id" {
+				approveID = opt.StringValue()
+			}
+		}
 	}
 	fullCmd, approved := PolicyCommand(data.Name, subCmd)
 
@@ -170,6 +178,19 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		userID = i.Member.User.ID
 	} else if i.User != nil {
 		userID = i.User.ID
+	}
+
+	// /repo approve approves one stored pending request, never the caller's own.
+	if data.Name == "repo" && subCmd == "approve" {
+		command, err := b.approvals.Approve(approveID, userID)
+		if err != nil {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: "**Decision:** DENY\n**Reason:** " + err.Error()},
+			})
+			return
+		}
+		fullCmd, approved = command, "true"
 	}
 
 	event := Event{
@@ -232,7 +253,8 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	resp := fmt.Sprintf("**Decision:** %s\n**Reason:** %s", dec.Decision, dec.Reason)
 
 	if dec.Decision == "REQUIRE_APPROVAL" {
-		resp += "\n\nAn administrator must approve this action. Use `/repo approve <id>`"
+		id := b.approvals.Request(userID, fullCmd)
+		resp += fmt.Sprintf("\n\nAnother administrator must approve this request: `/repo approve %s`", id)
 	} else if dec.Decision == "ALLOW" {
 		if dec.Action == "send_message" {
 			resp += fmt.Sprintf("\n\n**Action executed:** %s", dec.ActionTarget)
@@ -253,10 +275,9 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 }
 
 // PolicyCommand maps a slash command to the command name src/howlbot.howl
-// matches and the approved flag it is evaluated with. `/howl status` is the
-// policy's `status` (not `howl_status`); `/repo <sub>` is `repo_<sub>`.
-// `/repo approve` is evaluated as an approved `repo_release` (see issue #1:
-// the approval id is not yet checked against a stored request).
+// matches. `/howl status` is the policy's `status` (not `howl_status`);
+// `/repo <sub>` is `repo_<sub>`. It never marks anything approved: `/repo
+// approve <id>` is resolved against a stored pending request (Approvals).
 func PolicyCommand(name, sub string) (command, approved string) {
 	approved = "false"
 	switch {
@@ -266,9 +287,6 @@ func PolicyCommand(name, sub string) (command, approved string) {
 		command = sub
 	default:
 		command = name + "_" + sub
-	}
-	if command == "repo_approve" {
-		command, approved = "repo_release", "true"
 	}
 	return command, approved
 }
