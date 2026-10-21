@@ -14,7 +14,7 @@ func TestPolicyCommandMatchesThePolicyNames(t *testing.T) {
 		{"howl", "history", "history", "false"},
 		{"repo", "status", "repo_status", "false"},
 		{"repo", "release", "repo_release", "false"},
-		{"repo", "approve", "repo_release", "true"},
+		{"repo", "approve", "repo_approve", "false"},
 	}
 	for _, c := range cases {
 		command, approved := PolicyCommand(c.name, c.sub)
@@ -34,6 +34,10 @@ func TestEverySlashCommandReachesAPolicyBranch(t *testing.T) {
 	for _, top := range commands {
 		for _, opt := range top.Options {
 			command, approved := PolicyCommand(top.Name, opt.Name)
+			if command == "repo_approve" {
+				// Resolved against a pending request, then evaluated as an approved release.
+				command, approved = "repo_release", "true"
+			}
 			out, err := exec.Command(bin, "-run", "../src/howlbot.howl", "command="+command,
 				"user_id=u1", "roles=admin", "approved="+approved).Output()
 			if err != nil {

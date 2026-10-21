@@ -43,4 +43,10 @@ No Administrator permission is needed.
 
 HowlFrame alone authorizes operations. No user input can directly force an execution branch without being validated against trusted evidence (roles, IDs) collected independently by the Go adapter.
 
+Releases need two people. When `/repo release` returns `REQUIRE_APPROVAL`, the
+bot stores a pending request and replies with its id. `/repo approve <id>`
+approves only that stored request, only once, within 24 hours, and only when the
+approver is not the requester; anything else is denied. Pending requests are
+kept in memory, so a restart forgets them and they must be requested again.
+
 See [GitHub Pages](docs/index.html) for more details.
