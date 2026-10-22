@@ -7,6 +7,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -92,6 +93,7 @@ var (
 type Bot struct {
 	cfg       Config
 	Session   *discordgo.Session
+	historyMu sync.Mutex
 	history   []Decision
 	approvals *Approvals
 }
@@ -174,15 +176,22 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	}
 
 	userID := ""
-	if i.Member != nil {
+	if i.Member != nil && i.Member.User != nil {
 		userID = i.Member.User.ID
 	} else if i.User != nil {
 		userID = i.User.ID
 	}
 
-	// /repo approve approves one stored pending request, never the caller's own.
+	// /repo approve reserves only after authenticated role authorization.
+	var reservation *approvalReservation
 	if data.Name == "repo" && subCmd == "approve" {
-		command, err := b.approvals.Approve(approveID, userID)
+		authorized := false
+		for _, role := range roles {
+			if role == "admin" {
+				authorized = true
+			}
+		}
+		r, err := b.approvals.Reserve(approveID, userID, authorized)
 		if err != nil {
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -190,7 +199,9 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 			})
 			return
 		}
-		fullCmd, approved = command, "true"
+		reservation = r
+		defer reservation.cancel() // Retain pending requests on evaluator errors or DENY.
+		fullCmd, approved = r.command, "true"
 	}
 
 	event := Event{
@@ -242,11 +253,24 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		return
 	}
 
+	if reservation != nil && dec.Decision == "ALLOW" {
+		if err := reservation.commit(); err != nil {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: "**Decision:** DENY\n**Reason:** " + err.Error()},
+			})
+			return
+		}
+	}
 	dec.Command = fullCmd
+	b.historyMu.Lock()
 	b.history = append(b.history, dec)
 	if len(b.history) > 10 {
 		b.history = b.history[len(b.history)-10:]
 	}
+
+	history := append([]Decision(nil), b.history...)
+	b.historyMu.Unlock()
 
 	log.Printf("Decision: %s (Reason: %s)", dec.Decision, dec.Reason)
 
@@ -260,7 +284,7 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 			resp += fmt.Sprintf("\n\n**Action executed:** %s", dec.ActionTarget)
 		} else if dec.Action == "show_history" {
 			resp += "\n\n**History:**"
-			for idx, h := range b.history {
+			for idx, h := range history {
 				resp += fmt.Sprintf("\n%d. %s - %s", idx+1, h.Command, h.Decision)
 			}
 		}
